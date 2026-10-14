@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vários vídeos ao mesmo tempo</title>
+<style>
+:root{--bg:#eef1f5;--panel:#fff;--ink:#1b2430;--mute:#5d6877;--line:#d5dbe4;--accent:#d62839;--on-accent:#fff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171b24;--panel:#222836;--ink:#eef1f6;--mute:#9aa5b6;--line:#343c4e;--accent:#ff5468;--on-accent:#1b0a0d}}
+:root[data-theme="dark"]{--bg:#171b24;--panel:#222836;--ink:#eef1f6;--mute:#9aa5b6;--line:#343c4e;--accent:#ff5468;--on-accent:#1b0a0d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;line-height:1.4}
+header{padding:16px 14px 10px;max-width:1400px;margin:0 auto}
+h1{margin:0 0 10px;font-size:1.35rem;letter-spacing:-.01em}
+.add{display:flex;gap:8px}
+input{flex:1;min-width:0;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font-size:16px}
+input:focus,button:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+button{border:0;border-radius:10px;padding:12px 16px;font-size:1rem;font-weight:700;cursor:pointer;background:var(--accent);color:var(--on-accent)}
+button.ghost{background:var(--panel);color:var(--ink);border:1.5px solid var(--line);font-weight:600;padding:8px 12px}
+button.play{padding:9px 14px}
+a.ghost{display:inline-block;text-decoration:none;border-radius:10px;background:var(--accent);color:var(--on-accent);border:0;font-weight:700;padding:9px 14px;font-size:1rem}
+button.ghost[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.bar span{color:var(--mute);font-size:.9rem}
+#msg{min-height:1.2em;margin:8px 0 0;color:var(--accent);font-size:.9rem}
+main{max-width:1400px;margin:0 auto;padding:6px 14px 24px;display:grid;gap:12px;grid-template-columns:repeat(var(--cols,1),minmax(0,1fr))}
+.cell{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.frame{aspect-ratio:16/9;background:#000}
+.frame iframe{width:100%;height:100%;border:0;display:block}
+.cell footer{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;font-size:.85rem;color:var(--mute)}
+.cell footer button{padding:6px 10px;font-size:.85rem;background:transparent;color:var(--accent);border:1.5px solid var(--line)}
+.cell footer a{color:var(--accent);font-weight:700;text-decoration:none}
+.empty{grid-column:1/-1;text-align:center;color:var(--mute);padding:40px 12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Vários vídeos ao mesmo tempo</h1>
+  <div class="add">
+    <input id="url" type="url" inputmode="url" placeholder="Cole o link do vídeo do YouTube" aria-label="Link do vídeo do YouTube">
+    <button id="addBtn">Adicionar</button>
+  </div>
+  <p id="msg" role="status"></p>
+  <div class="bar">
+    <a class="ghost" href="https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F" target="_blank" rel="noopener">Entrar no YouTube</a>
+    <button class="ghost" id="reloadBtn">Recarregar vídeos</button>
+  </div>
+  <div class="bar">
+    <button class="play" id="playAll">Iniciar todos</button>
+    <button class="ghost" id="pauseAll">Pausar todos</button>
+    <button class="ghost" id="muteAll" aria-pressed="false">Silenciar todos</button>
+  </div>
+  <div class="bar">
+    <span>Colunas:</span>
+    <button class="ghost" data-cols="0" aria-pressed="true">Auto</button>
+    <button class="ghost" data-cols="1" aria-pressed="false">1</button>
+    <button class="ghost" data-cols="2" aria-pressed="false">2</button>
+    <button class="ghost" data-cols="3" aria-pressed="false">3</button>
+    <button class="ghost" id="clearBtn" style="margin-left:auto">Limpar tudo</button>
+  </div>
+</header>
+<main id="grid"></main>
+<script>
+(function(){
+  var items=[], cols=0, auto=false, KEY="multiyt:v1";
+  var grid=document.getElementById("grid"), urlEl=document.getElementById("url"), msg=document.getElementById("msg");
+
+  function load(){try{var s=JSON.parse(localStorage.getItem(KEY)||"null");if(s){items=s.items||[];cols=s.cols||0;}}catch(e){}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify({items:items,cols:cols}));}catch(e){}}
+
+  function parse(raw){
+    raw=(raw||"").trim(); if(!raw) return null;
+    var id=null,list=null,u;
+    try{u=new URL(/^https?:\/\//i.test(raw)?raw:"https://"+raw);}catch(e){return null;}
+    var h=u.hostname.replace(/^www\.|^m\./,"");
+    if(h==="youtu.be") id=u.pathname.slice(1).split("/")[0];
+    else if(h==="youtube.com"||h==="music.youtube.com"||h==="youtube-nocookie.com"){
+      id=u.searchParams.get("v");
+      var m=u.pathname.match(/^\/(shorts|embed|live|v)\/([\w-]{11})/);
+      if(!id&&m) id=m[2];
+      list=u.searchParams.get("list");
+    } else return null;
+    if(id&&!/^[\w-]{11}$/.test(id)) id=null;
+    if(!id&&!list) return null;
+    return {id:id,list:list};
+  }
+  function src(it){
+    var p="playsinline=1&rel=0&enablejsapi=1"+(auto?"&autoplay=1&mute=1":"");
+    if(it.id) return "https://www.youtube.com/embed/"+it.id+"?"+p+(it.list?"&list="+encodeURIComponent(it.list):"");
+    return "https://www.youtube.com/embed/videoseries?list="+encodeURIComponent(it.list)+"&"+p;
+  }
+  function render(){
+    grid.textContent="";
+    grid.style.setProperty("--cols",cols||(items.length<=1?1:window.innerWidth>=900?(items.length>4?3:2):(window.innerWidth>=600?2:1)));
+    if(!items.length){var e=document.createElement("p");e.className="empty";e.textContent="Nenhum vídeo ainda. Cole um link acima e toque em Adicionar.";grid.appendChild(e);}
+    items.forEach(function(it,i){
+      var c=document.createElement("div");c.className="cell";
+      var f=document.createElement("div");f.className="frame";
+      var ifr=document.createElement("iframe");
+      ifr.onload=function(){try{ifr.contentWindow.postMessage(JSON.stringify({event:"listening",id:i+1}),"*");}catch(e){}};
+      ifr.src=src(it);ifr.title="Vídeo "+(i+1);
+      ifr.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen";
+      ifr.allowFullscreen=true;ifr.referrerPolicy="strict-origin-when-cross-origin";
+      f.appendChild(ifr);c.appendChild(f);
+      var ft=document.createElement("footer");
+      var s=document.createElement("span");s.textContent="Vídeo "+(i+1)+(it.id?"":" (playlist)");
+      var a=document.createElement("a");a.textContent="Abrir no YouTube";a.target="_blank";a.rel="noopener";a.href=it.id?"https://www.youtube.com/watch?v="+it.id:"https://www.youtube.com/playlist?list="+encodeURIComponent(it.list);
+      var b=document.createElement("button");b.textContent="Remover";b.setAttribute("aria-label","Remover vídeo "+(i+1));
+      b.onclick=function(){items.splice(i,1);save();render();};
+      ft.appendChild(s);ft.appendChild(a);ft.appendChild(b);c.appendChild(ft);grid.appendChild(c);
+    });
+    document.querySelectorAll("[data-cols]").forEach(function(b){b.setAttribute("aria-pressed",String(+b.dataset.cols===cols));});
+  }
+  function add(){
+    var p=parse(urlEl.value);
+    if(!p){msg.textContent="Link inválido. Cole um link do YouTube, como youtube.com/watch?v=… ou youtu.be/…";return;}
+    msg.textContent="";items.push(p);urlEl.value="";save();render();
+  }
+  document.getElementById("addBtn").onclick=add;
+  urlEl.addEventListener("keydown",function(e){if(e.key==="Enter")add();});
+  document.querySelectorAll("[data-cols]").forEach(function(b){b.onclick=function(){cols=+b.dataset.cols;save();render();};});
+  document.getElementById("reloadBtn").onclick=render;
+  document.getElementById("clearBtn").onclick=function(){items=[];save();render();};
+  window.addEventListener("resize",function(){if(!cols)render();});
+
+  var muted=false;
+  function cmd(func,args){
+    document.querySelectorAll("#grid iframe").forEach(function(f){
+      try{f.contentWindow.postMessage(JSON.stringify({event:"command",func:func,args:args||[]}),"*");}catch(e){}
+    });
+  }
+  document.getElementById("playAll").onclick=function(){
+    if(!items.length){msg.textContent="Adicione pelo menos um vídeo primeiro.";return;}
+    msg.textContent="Todos iniciados sem som. Toque em Ativar som de todos para ouvir.";auto=true;muted=true;var mb=document.getElementById("muteAll");mb.textContent="Ativar som de todos";mb.setAttribute("aria-pressed","true");render();
+  };
+  document.getElementById("pauseAll").onclick=function(){auto=false;cmd("pauseVideo");};
+  document.getElementById("muteAll").onclick=function(){
+    muted=!muted;cmd(muted?"mute":"unMute");
+    this.textContent=muted?"Ativar som de todos":"Silenciar todos";
+    this.setAttribute("aria-pressed",String(muted));
+  };
+  load();render();
+})();
+</script>
+</body>
+</html>
